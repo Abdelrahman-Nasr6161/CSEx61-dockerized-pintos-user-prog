@@ -6,11 +6,14 @@
 #include "threads/vaddr.h"
 #include "threads/init.h"
 #include "userprog/process.h"
+#include "threads/synch.h"
 
 static void syscall_handler (struct intr_frame *);
 static void check_user_ptr (const void *ptr);
 static void halt (void);
 static void exit (int status);
+static pid_t exec (const char *cmd_line);
+static int wait (pid_t pid);
 
 /* Initialize system call infrastructure. */
 void
@@ -44,9 +47,17 @@ syscall_handler (struct intr_frame *f)
       exit(args[0]);
       break;
       
-    /* Stubs for other system calls that will be implemented by other team members */
     case SYS_EXEC:
+      check_user_ptr((const void *) args);
+      f->eax = exec((const char *) args[0]);
+      break;
+      
     case SYS_WAIT:
+      check_user_ptr((const void *) args);
+      f->eax = wait(args[0]);
+      break;
+      
+    /* Stubs for other system calls */
     case SYS_CREATE:
     case SYS_REMOVE:
     case SYS_OPEN:
@@ -82,8 +93,9 @@ check_user_ptr (const void *ptr)
   if (!is_user_vaddr(ptr))
     exit(-1);
     
-  /* Additional check could be added here to verify that the address is mapped
-     in the page directory, but that would require thread manipulation */
+  /* Verify that the address is mapped in the page directory */
+  if (!pagedir_get_page(thread_current()->pagedir, ptr))
+    exit(-1);
 }
 
 /* Terminates Pintos by calling shutdown_power_off() */
@@ -102,9 +114,76 @@ exit (int status)
   /* Print process termination message with status */
   printf("%s: exit(%d)\n", cur->name, status);
   
-  /* Store exit status for parent process if it waits */
-  /* This will be expanded when implementing parent-child relationships */
+  /* Store exit status for parent process */
+  cur->exit_status = status;
+  
+  /* Notify parent if it's waiting */
+  if (cur->parent != NULL) 
+  {
+    sema_up(&cur->parent->child_wait_sema);
+  }
+  
+  /* Close all open files */
+  for (int i = 0; i < MAX_FILES; i++) 
+  {
+    if (cur->files[i] != NULL) 
+    {
+      file_close(cur->files[i]);
+      cur->files[i] = NULL;
+    }
+  }
+  
+  /* Free resources */
+  process_exit();
   
   /* Terminate this process */
   thread_exit();
+}
+
+/* Starts a new process running the executable whose name is given in CMD_LINE.
+   Returns the new process's process id (pid), or -1 if the process cannot be created. */
+static pid_t
+exec (const char *cmd_line)
+{
+  check_user_ptr(cmd_line);
+  
+  /* Create a new process */
+  tid_t tid = process_execute(cmd_line);
+  
+  if (tid == TID_ERROR)
+    return -1;
+  
+  /* Find the child thread and set up parent-child relationship */
+  struct thread *child = get_child_process(tid);
+  if (child == NULL)
+    return -1;
+  
+  child->parent = thread_current();
+  
+  return tid;
+}
+
+/* Waits for a child process with PID to die and returns its exit status.
+   If PID is still alive, waits until it terminates. Returns -1 immediately
+   if PID is invalid or if the calling process is not PID's parent. */
+static int
+wait (pid_t pid)
+{
+  struct thread *child = get_child_process(pid);
+  struct thread *cur = thread_current();
+  
+  /* Check if PID is valid and is our child */
+  if (child == NULL || child->parent != cur)
+    return -1;
+  
+  /* Wait for child to exit */
+  sema_down(&cur->child_wait_sema);
+  
+  /* Get child's exit status */
+  int status = child->exit_status;
+  
+  /* Remove child from process list */
+  remove_child_process(child);
+  
+  return status;
 }
