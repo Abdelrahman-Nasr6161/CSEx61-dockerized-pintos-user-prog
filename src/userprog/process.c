@@ -17,6 +17,8 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
+#include "userprog/syscall.h"
 
 /* Used for setup_stack */
 static void push_stack(int order, void **esp, char *token, char **argv, int argc);
@@ -111,7 +113,7 @@ process_exit (void)
 
 	/* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-	pd = cur->pagedir;
+	pd = cur->pagedir; // Make sure 'pagedir' is the correct field in struct thread
 	if (pd != NULL)
 	{
 		/* Correct ordering here is crucial.  We must set
