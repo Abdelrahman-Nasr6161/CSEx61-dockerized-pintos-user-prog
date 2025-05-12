@@ -15,6 +15,14 @@ static void halt (void);
 static void exit (int status);
 static tid_t exec (const char *cmd_line);
 static int wait (tid_t pid);
+static struct lock filesys_lock;
+bool create (const char *file, unsigned initial_size);
+bool remove (const char *file);
+int open (const char *file);
+int filesize (int fd);
+void seek (int fd, unsigned position);
+unsigned tell (int fd);
+void close (int fd);
 /* Initialize system call infrastructure. */
 void
 syscall_init (void) 
@@ -70,17 +78,39 @@ syscall_handler (struct intr_frame *f)
       break;
     /* Stubs for other system calls */
     case SYS_CREATE:
-    case SYS_REMOVE:
-    case SYS_OPEN:
-    case SYS_FILESIZE:
-    
-    case SYS_SEEK:
-    case SYS_TELL:
-    case SYS_CLOSE:
-      /* Placeholder for other system calls */
-      printf("System call not yet implemented: %d\n", syscall_number);
-      exit(-1);
+      check_user_ptr((const void *) args);
+      check_user_ptr((const void *) args+1);
+      f->eax = create((const char *) args[0], (unsigned) args[1]);
       break;
+    case SYS_REMOVE:
+      check_user_ptr((const void *) args);
+      f->eax = remove((const char *) args[0]);
+      break;
+    case SYS_OPEN:
+      check_user_ptr((const void *) args);
+      f->eax = open((const char *) args[0]);
+      break;
+    case SYS_FILESIZE:
+      check_user_ptr((const void *) args);
+      f->eax = filesize(args[0]);
+      break;
+    case SYS_SEEK:
+      check_user_ptr((const void *) args);
+      check_user_ptr((const void *) args+1);
+      seek(args[0], (unsigned) args[1]);
+      break;
+    case SYS_TELL:
+      check_user_ptr((const void *) args);
+      f->eax = tell(args[0]);
+      break;
+    case SYS_CLOSE:
+      check_user_ptr((const void *) args);
+      close(args[0]);
+      break;
+      /* Placeholder for other system calls */
+      // printf("System call not yet implemented: %d\n", syscall_number);
+      // exit(-1);
+      // break;
       
     default:
       /* Invalid system call */
@@ -235,8 +265,83 @@ write (int fd, const void *buffer, unsigned size) {
     return bytes;
   }
 }
-void check_buffer(const void *buffer, unsigned size) {
-  for (unsigned i = 0; i < size; i++) {
-    check_user_ptr((const char *)buffer + i);
+
+bool 
+create (const char *file, unsigned initial_size){
+  check_user_ptr(file);
+  lock_acquire(&filesys_lock);
+  bool created = filesys_create(file, initial_size);
+  lock_release(&filesys_lock);
+  return created;
+}
+bool
+remove (const char *file){
+  check_user_ptr(file);
+  lock_acquire(&filesys_lock);
+  bool removed = filesys_remove(file);
+  lock_release(&filesys_lock);
+  return removed;
+}
+int
+open (const char *file){
+  check_user_ptr(file);
+  lock_acquire(&filesys_lock);
+  struct file *f = filesys_open(file);
+  if (f == NULL) {
+    lock_release(&filesys_lock);
+    return -1;
   }
+  int fd = filesys_open(f);  ///////??
+  if (fd == -1) {
+    file_close(f);
+  }
+  lock_release(&filesys_lock);
+  return fd;
+}
+int
+filesize (int fd){
+  lock_acquire(&filesys_lock);
+  struct file *f = process_get_file(fd);
+  if(f == NULL) {
+    lock_release(&filesys_lock);
+    return -1;
+  }
+  int size = file_length(f);
+  lock_release(&filesys_lock);
+  return size;
+}
+void
+seek (int fd, unsigned position){
+  lock_acquire(&filesys_lock);
+  struct file *f = process_get_file(fd);
+  if (f == NULL || position < 0) {
+    lock_release(&filesys_lock);
+    return;
+  }
+  file_seek(f, position);
+  lock_release(&filesys_lock);
+}
+unsigned
+tell (int fd){
+  lock_acquire(&filesys_lock);
+  struct file *f = process_get_file(fd);
+  if (f == NULL) {
+    lock_release(&filesys_lock);
+    return -1;
+  }
+  unsigned curr_position = file_tell(f);
+  lock_release(&filesys_lock);
+  return curr_position;
+}
+void
+close (int fd){
+  lock_acquire(&filesys_lock);
+  struct file *f = process_get_file(fd);
+  if (f == NULL) {
+    lock_release(&filesys_lock);
+    return;
+  }
+  file_close(f);
+  process_get_file(-1); ///////??
+  lock_release(&filesys_lock);
 }
