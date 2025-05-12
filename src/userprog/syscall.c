@@ -15,12 +15,10 @@ static void halt (void);
 static void exit (int status);
 static tid_t exec (const char *cmd_line);
 static int wait (tid_t pid);
-static struct lock filesys_lock;
 /* Initialize system call infrastructure. */
 void
 syscall_init (void) 
 {
-  lock_init(&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -58,16 +56,16 @@ syscall_handler (struct intr_frame *f)
       check_user_ptr((const void *) args);
       f->eax = wait(args[0]);
       break;
-      case SYS_READ:
+    case SYS_READ:
       check_user_ptr((const void *) args);
-      check_user_ptr((const void *) args+1);
-      check_user_ptr((const void *) args+2);
+      check_user_ptr((const void *) (args+1));
+      check_user_ptr((const void *) (args+2));
       f->eax = read(args[0],(void * ) args[1] , (unsigned) args[2]);
       break;
     case SYS_WRITE:
       check_user_ptr((const void *) args);
-      check_user_ptr((const void *) args+1);
-      check_user_ptr((const void *) args+2);
+      check_user_ptr((const void *) (args+1));
+      check_user_ptr((const void *) (args+2));
       f->eax = write(args[0] , (void *) args[1] , (unsigned) args[2]);
       break;
     /* Stubs for other system calls */
@@ -199,9 +197,9 @@ wait (tid_t pid)
   
   return status;
 }
-int
+off_t
 read (int fd, void *buffer, unsigned size) {
-  check_user_ptr(buffer);
+  check_buffer(buffer, size);
   if (fd == 0) {
     for (unsigned i = 0; i < size; i++) {
       ((char *) buffer)[i] = input_getc();
@@ -210,27 +208,35 @@ read (int fd, void *buffer, unsigned size) {
   } else if (fd == 1 || fd < 0) {
     return -1;
   } else {
-    lock_acquire(&filesys_lock);
     struct file *f = process_get_file(fd);
-    int bytes = (f != NULL) ? file_read(f, buffer, size) : -1;
-    lock_release(&filesys_lock);
+    if (f == NULL) return -1;
+    sema_down(&f->lock);
+    off_t bytes = file_read(f, buffer, size);
+    sema_up(&f->lock);
     return bytes;
   }
 }
 
-int
+off_t
 write (int fd, const void *buffer, unsigned size) {
-  check_user_ptr(buffer);
+  check_buffer(buffer, size);
   if (fd == 1) {
     putbuf(buffer, size);
     return size;
   } else if (fd == 0 || fd < 0) {
     return -1;
   } else {
-    lock_acquire(&filesys_lock);
     struct file *f = process_get_file(fd);
-    int bytes = (f != NULL) ? file_write(f, buffer, size) : -1;
-    lock_release(&filesys_lock);
+    if (f == NULL || f->deny_write)
+      return -1;
+    sema_down(&f->lock);
+    off_t bytes = file_write(f, buffer, size);
+    sema_up(&f->lock);
     return bytes;
+  }
+}
+void check_buffer(const void *buffer, unsigned size) {
+  for (unsigned i = 0; i < size; i++) {
+    check_user_ptr((const char *)buffer + i);
   }
 }
