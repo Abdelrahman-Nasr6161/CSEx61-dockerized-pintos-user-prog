@@ -7,18 +7,20 @@
 #include "threads/init.h"
 #include "userprog/process.h"
 #include "threads/synch.h"
-
+#include "filesys/file.h"
+#include "filesys/off_t.h"
 static void syscall_handler (struct intr_frame *);
 static void check_user_ptr (const void *ptr);
 static void halt (void);
 static void exit (int status);
-static pid_t exec (const char *cmd_line);
-static int wait (pid_t pid);
-
+static tid_t exec (const char *cmd_line);
+static int wait (tid_t pid);
+static struct lock filesys_lock;
 /* Initialize system call infrastructure. */
 void
 syscall_init (void) 
 {
+  lock_init(&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -56,14 +58,24 @@ syscall_handler (struct intr_frame *f)
       check_user_ptr((const void *) args);
       f->eax = wait(args[0]);
       break;
-      
+      case SYS_READ:
+      check_user_ptr((const void *) args);
+      check_user_ptr((const void *) args+1);
+      check_user_ptr((const void *) args+2);
+      f->eax = read(args[0],(void * ) args[1] , (unsigned) args[2]);
+      break;
+    case SYS_WRITE:
+      check_user_ptr((const void *) args);
+      check_user_ptr((const void *) args+1);
+      check_user_ptr((const void *) args+2);
+      f->eax = write(args[0] , (void *) args[1] , (unsigned) args[2]);
+      break;
     /* Stubs for other system calls */
     case SYS_CREATE:
     case SYS_REMOVE:
     case SYS_OPEN:
     case SYS_FILESIZE:
-    case SYS_READ:
-    case SYS_WRITE:
+    
     case SYS_SEEK:
     case SYS_TELL:
     case SYS_CLOSE:
@@ -124,7 +136,7 @@ exit (int status)
   }
   
   /* Close all open files */
-  for (int i = 0; i < MAX_FILES; i++) 
+  for (int i = 0; i < cur->MAX_FILES; i++) 
   {
     if (cur->files[i] != NULL) 
     {
@@ -142,7 +154,7 @@ exit (int status)
 
 /* Starts a new process running the executable whose name is given in CMD_LINE.
    Returns the new process's process id (pid), or -1 if the process cannot be created. */
-static pid_t
+static tid_t
 exec (const char *cmd_line)
 {
   check_user_ptr(cmd_line);
@@ -167,7 +179,7 @@ exec (const char *cmd_line)
    If PID is still alive, waits until it terminates. Returns -1 immediately
    if PID is invalid or if the calling process is not PID's parent. */
 static int
-wait (pid_t pid)
+wait (tid_t pid)
 {
   struct thread *child = get_child_process(pid);
   struct thread *cur = thread_current();
@@ -186,4 +198,39 @@ wait (pid_t pid)
   remove_child_process(child);
   
   return status;
+}
+int
+read (int fd, void *buffer, unsigned size) {
+  check_user_ptr(buffer);
+  if (fd == 0) {
+    for (unsigned i = 0; i < size; i++) {
+      ((char *) buffer)[i] = input_getc();
+    }
+    return size;
+  } else if (fd == 1 || fd < 0) {
+    return -1;
+  } else {
+    lock_acquire(&filesys_lock);
+    struct file *f = process_get_file(fd);
+    int bytes = (f != NULL) ? file_read(f, buffer, size) : -1;
+    lock_release(&filesys_lock);
+    return bytes;
+  }
+}
+
+int
+write (int fd, const void *buffer, unsigned size) {
+  check_user_ptr(buffer);
+  if (fd == 1) {
+    putbuf(buffer, size);
+    return size;
+  } else if (fd == 0 || fd < 0) {
+    return -1;
+  } else {
+    lock_acquire(&filesys_lock);
+    struct file *f = process_get_file(fd);
+    int bytes = (f != NULL) ? file_write(f, buffer, size) : -1;
+    lock_release(&filesys_lock);
+    return bytes;
+  }
 }

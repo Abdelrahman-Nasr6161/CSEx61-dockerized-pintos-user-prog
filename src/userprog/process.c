@@ -556,3 +556,44 @@ static void push_stack( int order, void **esp, char *token, char **argv, int arg
 		break;
 	}
 }
+struct thread *get_child_process(tid_t pid) {
+    struct thread *cur_thread = thread_current();  // Get the current thread/process
+    struct list_elem *e;
+    
+    // Iterate through the list of child processes
+    for (e = list_begin(&cur_thread->children); e != list_end(&cur_thread->children); e = list_next(e)) {
+        struct thread *child = list_entry(e, struct thread, child_elem);
+        
+        // Check if the child process has the matching PID
+        if (child->tid == pid) {
+            return child;  // Return the child process
+        }
+    }
+    
+    return NULL;  // Return NULL if no child process is found with the specified PID
+}
+
+void remove_child_process(struct thread *child) {
+    struct thread *parent = thread_current();  // Get the current thread (which is the parent).
+    
+    // Find the child in the parent's children list and remove it.
+    struct list_elem *e;
+    for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, child_elem);
+        
+        if (t == child) {  // If we found the child to remove.
+            list_remove(e);  // Remove the child from the parent's children list.
+            break;  // Exit the loop once the child is removed.
+        }
+    }
+}
+
+struct file *process_get_file(int fd) {
+    struct thread *cur_thread = thread_current();  // Get the current thread (process)
+    
+    if (fd < 0 || fd >= cur_thread->MAX_FILES) {
+        return NULL;  // Invalid file descriptor
+    }
+    
+    return cur_thread->files[fd];  // Return the file corresponding to the file descriptor
+}

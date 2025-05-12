@@ -183,7 +183,6 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
-
 	/* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
      member cannot be observed. */
@@ -471,7 +470,9 @@ init_thread (struct thread *t, const char *name, int priority)
 	t->stack = (uint8_t *) t + PGSIZE;
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
-
+	sema_init(&t->child_wait_sema, 1);
+	t->MAX_FILES = 20;
+	list_init(&t->children);
 	old_level = intr_disable ();
 	list_push_back (&all_list, &t->allelem);
 	intr_set_level (old_level);

@@ -11,5 +11,5 @@ void process_activate (void);
 /* Additional functions for parent-child process management */
 struct thread *get_child_process (tid_t tid);
 void remove_child_process (struct thread *child);
-
+struct file *proccess_get_file(int fd);
 #endif /* userprog/process.h */

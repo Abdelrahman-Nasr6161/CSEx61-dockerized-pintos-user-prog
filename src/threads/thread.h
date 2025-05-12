@@ -5,8 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "userprog/syscall.h"
-
-
+#include <threads/synch.h>
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -82,28 +81,30 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
-struct thread
-  {
-    /* Owned by thread.c. */
-    tid_t tid;                          /* Thread identifier. */
-    enum thread_status status;          /* Thread state. */
-    char name[16];                      /* Name (for debugging purposes). */
-    uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
-    struct list_elem allelem;           /* List element for all threads list. */
-
-    /* Shared between thread.c and synch.c. */
-    struct list_elem elem;              /* List element. */
-
-// #ifdef USERPROG
-//     /* Owned by userprog/process.c. */
-//     uint32_t *pagedir;                  /* Page directory. */
-// #endif
-    uint32_t *pagedir;                  /* Page directory. */
-
-    /* Owned by thread.c. */
-    unsigned magic;                     /* Detects stack overflow. */
-  };
+   struct thread
+   {
+     /* Owned by thread.c. */
+     tid_t tid;                          /* Thread identifier. */
+     enum thread_status status;          /* Thread state. */
+     char name[16];                      /* Name (for debugging purposes). */
+     uint8_t *stack;                     /* Saved stack pointer. */
+     int priority;                       /* Priority. */
+     struct list_elem allelem;          /* List element for all threads list. */
+ 
+     /* Shared between thread.c and synch.c. */
+     struct list_elem elem;              /* List element. */
+     struct list_elem child_elem;
+     struct list children;
+     /* ----- Added for userprog ----- */
+     struct thread *parent;             /* Parent thread. */
+     int exit_status;                   /* Exit status to report to parent. */
+     struct semaphore child_wait_sema;  /* Semaphore to wait on child exit. */
+     struct file *files[128];           /* Open files, indexed by fd. */
+     uint32_t *pagedir;                 /* Page directory. */
+     int MAX_FILES;
+     /* Owned by thread.c. */
+     unsigned magic;                     /* Detects stack overflow. */
+   };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
