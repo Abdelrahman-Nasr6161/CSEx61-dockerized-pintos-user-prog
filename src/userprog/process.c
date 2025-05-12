@@ -597,3 +597,26 @@ struct file *process_get_file(int fd) {
     
     return cur_thread->files[fd];  // Return the file corresponding to the file descriptor
 }
+
+int
+process_add_file(struct file *f) {
+	struct thread *cur_thread = thread_current();
+	
+	for (int i = 2; i < cur_thread->MAX_FILES; i++) {
+		if (cur_thread->files[i] == NULL) {
+			cur_thread->files[i] = f;
+			return i;  // Return file descriptor
+		}
+	}
+	
+	return -1;  // No file descriptor
+}
+
+void
+close_handler(int fd) {
+	struct thread *cur_thread = thread_current();
+	
+	if (fd >= 2 && fd < cur_thread->MAX_FILES) {
+		cur_thread->files[fd] = NULL;
+	  }
+}

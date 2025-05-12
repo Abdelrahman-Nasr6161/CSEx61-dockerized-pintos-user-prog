@@ -16,13 +16,13 @@ static void exit (int status);
 static tid_t exec (const char *cmd_line);
 static int wait (tid_t pid);
 static struct lock filesys_lock;
-bool create (const char *file, unsigned initial_size);
-bool remove (const char *file);
-int open (const char *file);
-int filesize (int fd);
-void seek (int fd, unsigned position);
-unsigned tell (int fd);
-void close (int fd);
+static bool create (const char *file, unsigned initial_size);
+static bool remove (const char *file);
+static int open (const char *file);
+static int filesize (int fd);
+static void seek (int fd, unsigned position);
+static unsigned tell (int fd);
+static void close (int fd);
 /* Initialize system call infrastructure. */
 void
 syscall_init (void) 
@@ -265,6 +265,11 @@ write (int fd, const void *buffer, unsigned size) {
     return bytes;
   }
 }
+void check_buffer(const void *buffer, unsigned size) {
+  for (unsigned i = 0; i < size; i++) {
+    check_user_ptr((const char *)buffer + i);
+  }
+}
 
 bool 
 create (const char *file, unsigned initial_size){
@@ -291,7 +296,7 @@ open (const char *file){
     lock_release(&filesys_lock);
     return -1;
   }
-  int fd = filesys_open(f);  ///////??
+  int fd = process_add_file(f);
   if (fd == -1) {
     file_close(f);
   }
@@ -314,7 +319,7 @@ void
 seek (int fd, unsigned position){
   lock_acquire(&filesys_lock);
   struct file *f = process_get_file(fd);
-  if (f == NULL || position < 0) {
+  if (f == NULL) {
     lock_release(&filesys_lock);
     return;
   }
@@ -329,7 +334,7 @@ tell (int fd){
     lock_release(&filesys_lock);
     return -1;
   }
-  unsigned curr_position = file_tell(f);
+  int curr_position = file_tell(f);
   lock_release(&filesys_lock);
   return curr_position;
 }
@@ -341,7 +346,7 @@ close (int fd){
     lock_release(&filesys_lock);
     return;
   }
+  close_handler(fd);
   file_close(f);
-  process_get_file(-1); ///////??
   lock_release(&filesys_lock);
 }
