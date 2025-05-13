@@ -8,8 +8,13 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
-/* Additional functions for parent-child process management */
+/* Process management */
 struct thread *get_child_process (tid_t tid);
 void remove_child_process (struct thread *child);
-struct file *proccess_get_file(int fd);
+
+/* File management */
+struct file *process_get_file (int fd);
+int process_add_file (struct file *f);
+void process_close_file (int fd);
+
 #endif /* userprog/process.h */
