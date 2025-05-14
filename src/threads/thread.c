@@ -14,6 +14,12 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+/* For asm volatile */
+#ifdef __GNUC__
+#define ASM_VOLATILE asm volatile
+#else
+#define ASM_VOLATILE __asm volatile
+#endif
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow. */
@@ -56,11 +62,11 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 bool thread_mlfqs;
 
 static void kernel_thread (thread_func *, void *aux);
-static void idle (void *aux UNUSED);
+static void idle (void *aux);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
-static bool is_thread (struct thread *) UNUSED;
+static bool is_thread (struct thread *);
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
@@ -300,7 +306,7 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
     /* Not yet implemented. */
 }
@@ -331,7 +337,7 @@ thread_get_recent_cpu (void)
 
 /* Idle thread. */
 static void
-idle (void *idle_started_ UNUSED) 
+idle (void *idle_started_) 
 {
     struct semaphore *idle_started = idle_started_;
     idle_thread = thread_current ();
@@ -342,7 +348,7 @@ idle (void *idle_started_ UNUSED)
         intr_disable ();
         thread_block ();
 
-        asm volatile ("sti; hlt" : : : "memory");
+        ASM_VOLATILE ("sti; hlt" : : : "memory");
     }
 }
 
@@ -363,7 +369,7 @@ running_thread (void)
 {
     uint32_t *esp;
 
-    asm ("mov %%esp, %0" : "=g" (esp));
+    ASM_VOLATILE ("mov %%esp, %0" : "=g" (esp));
     return pg_round_down (esp);
 }
 
@@ -397,6 +403,8 @@ init_thread (struct thread *t, const char *name, int priority)
     t->exit_status = 0;
     t->exited = false;
     t->parent_tid = TID_ERROR;
+    t->child_elem.next = NULL;
+    t->child_elem.prev = NULL;
 
     /* Initialize file management fields */
     for (int i = 0; i < MAX_FILES; i++)
@@ -449,6 +457,66 @@ thread_schedule_tail (struct thread *prev)
         ASSERT (prev != cur);
         palloc_free_page (prev);
     }
+}
+
+/* Process management helpers */
+struct thread *get_child_process(tid_t tid) {
+    struct thread *cur = thread_current();
+    struct list_elem *e;
+    
+    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
+        struct thread *child = list_entry(e, struct thread, child_elem);
+        if (child->tid == tid)
+            return child;
+    }
+    return NULL;
+}
+
+void remove_child_process(struct thread *child) {
+    list_remove(&child->child_elem);
+}
+
+/* File management helpers */
+struct file *process_get_file(int fd) {
+    struct thread *cur = thread_current();
+    
+    if (fd < 0 || fd >= MAX_FILES)
+        return NULL;
+    
+    return cur->files[fd];
+}
+
+int process_add_file(struct file *f) {
+    struct thread *cur = thread_current();
+    
+    for (int fd = 2; fd < MAX_FILES; fd++) {
+        if (cur->files[fd] == NULL) {
+            cur->files[fd] = f;
+            return fd;
+        }
+    }
+    return -1;
+}
+
+void process_close_file(int fd) {
+    struct thread *cur = thread_current();
+    
+    if (fd >= 2 && fd < MAX_FILES && cur->files[fd] != NULL) {
+        file_close(cur->files[fd]);
+        cur->files[fd] = NULL;
+    }
+}
+
+/* Helper function to get thread by tid */
+struct thread *get_thread_by_tid(tid_t tid) {
+    struct list_elem *e;
+    
+    for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, allelem);
+        if (t->tid == tid)
+            return t;
+    }
+    return NULL;
 }
 
 /* Schedules a new process. */

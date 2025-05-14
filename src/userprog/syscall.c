@@ -8,7 +8,10 @@
 #include "userprog/process.h"
 #include "threads/synch.h"
 #include "filesys/file.h"
-#include "filesys/off_t.h"
+#include "filesys/filesys.h"
+#include "devices/input.h"
+#include "threads/palloc.h"
+#include "devices/shutdown.h"
 
 static void syscall_handler (struct intr_frame *);
 static void check_user_ptr (const void *ptr);
@@ -30,13 +33,13 @@ static unsigned tell (int fd);
 static void close (int fd);
 
 /* File system lock */
-static struct lock filesys_lock;
+struct lock filesys_lock;
 
 /* Initialize system call infrastructure. */
 void
 syscall_init (void) 
 {
-    lock_init(&filesys_lock);
+    lock_init (&filesys_lock);
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -67,6 +70,7 @@ syscall_handler (struct intr_frame *f)
             
         case SYS_EXEC:
             check_user_ptr((const void *) args);
+            check_user_ptr((const void *) args[0]);
             f->eax = exec((const char *) args[0]);
             break;
             
@@ -77,17 +81,19 @@ syscall_handler (struct intr_frame *f)
             
         case SYS_CREATE:
             check_user_ptr((const void *) args);
-            check_user_ptr((const void *) (args + 1));
+            check_user_ptr((const void *) args[0]);
             f->eax = create((const char *) args[0], (unsigned) args[1]);
             break;
             
         case SYS_REMOVE:
             check_user_ptr((const void *) args);
+            check_user_ptr((const void *) args[0]);
             f->eax = remove((const char *) args[0]);
             break;
             
         case SYS_OPEN:
             check_user_ptr((const void *) args);
+            check_user_ptr((const void *) args[0]);
             f->eax = open((const char *) args[0]);
             break;
             
@@ -98,21 +104,18 @@ syscall_handler (struct intr_frame *f)
             
         case SYS_READ:
             check_user_ptr((const void *) args);
-            check_user_ptr((const void *) (args + 1));
-            check_user_ptr((const void *) (args + 2));
+            check_user_ptr((const void *) args[1]);
             f->eax = read(args[0], (void *) args[1], (unsigned) args[2]);
             break;
             
         case SYS_WRITE:
             check_user_ptr((const void *) args);
-            check_user_ptr((const void *) (args + 1));
-            check_user_ptr((const void *) (args + 2));
+            check_user_ptr((const void *) args[1]);
             f->eax = write(args[0], (const void *) args[1], (unsigned) args[2]);
             break;
             
         case SYS_SEEK:
             check_user_ptr((const void *) args);
-            check_user_ptr((const void *) (args + 1));
             seek(args[0], (unsigned) args[1]);
             break;
             
@@ -168,7 +171,7 @@ exit (int status)
     struct thread *cur = thread_current();
     cur->exit_status = status;
     printf("%s: exit(%d)\n", cur->name, status);
-    process_exit();
+    thread_exit();
 }
 
 /* Starts a new process running the executable whose name is given in CMD_LINE.
@@ -289,7 +292,7 @@ write (int fd, const void *buffer, unsigned size)
     
     lock_acquire(&filesys_lock);
     struct file *f = process_get_file(fd);
-    if (f == NULL || f->deny_write) {
+    if (f == NULL) {
         lock_release(&filesys_lock);
         return -1;
     }
@@ -331,4 +334,36 @@ close (int fd)
     lock_acquire(&filesys_lock);
     process_close_file(fd);
     lock_release(&filesys_lock);
+}
+bool 
+create (const char *file, unsigned initial_size){
+  check_user_ptr(file);
+  lock_acquire(&filesys_lock);
+  bool created = filesys_create(file, initial_size);
+  lock_release(&filesys_lock);
+  return created;
+}
+bool
+remove (const char *file){
+  check_user_ptr(file);
+  lock_acquire(&filesys_lock);
+  bool removed = filesys_remove(file);
+  lock_release(&filesys_lock);
+  return removed;
+}
+int
+open (const char *file){
+  check_user_ptr(file);
+  lock_acquire(&filesys_lock);
+  struct file *f = filesys_open(file);
+  if (f == NULL) {
+    lock_release(&filesys_lock);
+    return -1;
+  }
+}
+
+void check_buffer(const void *buffer, unsigned size) {
+  for (unsigned i = 0; i < size; i++) {
+    check_user_ptr((const char *)buffer + i);
+  }
 }

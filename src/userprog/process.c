@@ -19,8 +19,13 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include "userprog/syscall.h"
+#include "userprog/pagedir.h"
+#ifndef ASM_VOLATILE
+#define ASM_VOLATILE(...) __asm__ volatile (__VA_ARGS__)
+#endif
 
-static thread_func start_process NO_RETURN;
+
+static void start_process (void *file_name_);
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
@@ -47,7 +52,8 @@ process_execute (const char *file_name)
         /* Set up parent-child relationship */
         struct thread *child = get_child_process(tid);
         if (child != NULL) {
-            child->parent_tid = thread_current()->tid;
+            child->parent = thread_current();
+            sema_init(&child->child_wait_sema, 0);
         }
     }
     return tid;
@@ -77,7 +83,7 @@ start_process (void *file_name_)
     /* Start the user process by simulating a return from an
        interrupt, implemented by intr_exit (in
        threads/intr-stubs.S). */
-    asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
+    ASM_VOLATILE ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
     NOT_REACHED ();
 }
 
@@ -85,7 +91,14 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid) 
 {
-    return wait (child_tid);
+    struct thread *child = get_child_process(child_tid);
+    if (child == NULL)
+        return -1;
+
+    sema_down(&child->child_wait_sema);
+    int status = child->exit_status;
+    remove_child_process(child);
+    return status;
 }
 
 /* Free the current process's resources. */
@@ -116,9 +129,8 @@ process_exit (void)
 
     /* Set exit status and notify parent */
     cur->exited = true;
-    struct thread *parent = get_thread_by_tid(cur->parent_tid);
-    if (parent != NULL) {
-        sema_up(&parent->child_wait_sema);
+    if (cur->parent != NULL) {
+        sema_up(&cur->parent->child_wait_sema);
     }
 }
 
@@ -468,52 +480,4 @@ install_page (void *upage, void *kpage, bool writable)
        address, then map our page there. */
     return (pagedir_get_page (t->pagedir, upage) == NULL
             && pagedir_set_page (t->pagedir, upage, kpage, writable));
-}
-
-/* Process management helpers */
-struct thread *get_child_process(tid_t tid) {
-    struct thread *cur = thread_current();
-    struct list_elem *e;
-    
-    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
-        struct thread *child = list_entry(e, struct thread, child_elem);
-        if (child->tid == tid)
-            return child;
-    }
-    return NULL;
-}
-
-void remove_child_process(struct thread *child) {
-    list_remove(&child->child_elem);
-}
-
-/* File management helpers */
-struct file *process_get_file(int fd) {
-    struct thread *cur = thread_current();
-    
-    if (fd < 0 || fd >= 128)
-        return NULL;
-    
-    return cur->files[fd];
-}
-
-int process_add_file(struct file *f) {
-    struct thread *cur = thread_current();
-    
-    for (int fd = 2; fd < 128; fd++) {
-        if (cur->files[fd] == NULL) {
-            cur->files[fd] = f;
-            return fd;
-        }
-    }
-    return -1;
-}
-
-void process_close_file(int fd) {
-    struct thread *cur = thread_current();
-    
-    if (fd >= 2 && fd < 128 && cur->files[fd] != NULL) {
-        file_close(cur->files[fd]);
-        cur->files[fd] = NULL;
-    }
 }
