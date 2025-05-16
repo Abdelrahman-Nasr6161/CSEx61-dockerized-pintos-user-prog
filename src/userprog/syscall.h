@@ -1,11 +1,13 @@
 #ifndef USERPROG_SYSCALL_H
 #define USERPROG_SYSCALL_H
 
-#include "threads/synch.h"
+typedef int pid_t;
 
 void syscall_init (void);
 
-/* File system lock */
-extern struct lock filesys_lock;
+
+struct file * get_file_by_fd (int fd);
+int add_to_file_table (struct file *f);
+
 
 #endif /* userprog/syscall.h */

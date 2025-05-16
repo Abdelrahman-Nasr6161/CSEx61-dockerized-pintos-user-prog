@@ -32,61 +32,115 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-tid_t
-process_execute (const char *file_name) 
-{
+tid_t process_execute(const char *file_name) {
     char *fn_copy;
     tid_t tid;
-
-    /* Make a copy of FILE_NAME. */
-    fn_copy = palloc_get_page (0);
+    
+    // Make a copy of the entire command line
+    fn_copy = palloc_get_page(0);
     if (fn_copy == NULL)
         return TID_ERROR;
-    strlcpy (fn_copy, file_name, PGSIZE);
+    strlcpy(fn_copy, file_name, PGSIZE);
 
-    /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+    // Create a new thread with the original command line
+    tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+    
     if (tid == TID_ERROR)
-        palloc_free_page (fn_copy);
-    else {
-        /* Set up parent-child relationship */
-        struct thread *child = get_child_process(tid);
-        if (child != NULL) {
-            child->parent = thread_current();
-            sema_init(&child->child_wait_sema, 0);
-        }
-    }
+        palloc_free_page(fn_copy);
+    
     return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
-static void
-start_process (void *file_name_)
-{
+static void start_process(void *file_name_) {
     char *file_name = file_name_;
     struct intr_frame if_;
     bool success;
 
-    /* Initialize interrupt frame and load executable. */
-    memset (&if_, 0, sizeof if_);
+    memset(&if_, 0, sizeof if_);
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
-    success = load (file_name, &if_.eip, &if_.esp);
 
-    /* If load failed, quit. */
-    palloc_free_page (file_name);
-    if (!success) 
-        thread_exit ();
+    // Parse command line into argv
+    char *save_ptr;
+    char *cmd_line = palloc_get_page(0);
+    if (cmd_line == NULL)
+        thread_exit();
+    strlcpy(cmd_line, file_name, PGSIZE);
 
-    /* Start the user process by simulating a return from an
-       interrupt, implemented by intr_exit (in
-       threads/intr-stubs.S). */
-    ASM_VOLATILE ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
-    NOT_REACHED ();
+    // Extract program name and arguments
+    char *prog_name = strtok_r(cmd_line, " ", &save_ptr);
+    success = load(prog_name, &if_.eip, &if_.esp);
+
+    if (!success) {
+        palloc_free_page(cmd_line);
+        palloc_free_page(file_name);
+        thread_exit();
+    }
+
+    // Parse arguments
+    int argc = 0;
+    char *argv[64];
+    argv[argc++] = prog_name;
+    char *token;
+    while ((token = strtok_r(NULL, " ", &save_ptr)) && argc < 64)
+        argv[argc++] = token;
+
+    // Push arguments onto stack
+    if (!setup_stack_args(&if_.esp, argc, argv)) {
+        palloc_free_page(cmd_line);
+        palloc_free_page(file_name);
+        thread_exit();
+    }
+
+    palloc_free_page(cmd_line);
+    palloc_free_page(file_name);
+    asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
+    NOT_REACHED();
 }
 
+static bool setup_stack_args(void **esp, int argc, char *argv[]) {
+    uint8_t *sp = (uint8_t *)PHYS_BASE;
+    char *arg_ptrs[64];
+
+    // Push arguments and collect pointers
+    for (int i = argc-1; i >= 0; i--) {
+        size_t len = strlen(argv[i]) + 1;
+        sp -= len;
+        memcpy(sp, argv[i], len);
+        arg_ptrs[i] = (char *)sp;
+    }
+
+    // Align to 4-byte boundary
+    sp -= (uintptr_t)sp % 4;
+
+    // Push null sentinel
+    sp -= sizeof(char *);
+    *(char **)sp = NULL;
+
+    // Push argv pointers
+    for (int i = argc-1; i >= 0; i--) {
+        sp -= sizeof(char *);
+        *(char **)sp = arg_ptrs[i];
+    }
+
+    // Push argv address and argc
+    char **argv_addr = (char **)sp;
+    sp -= sizeof(char **);
+    *(char ***)sp = argv_addr;
+    
+    sp -= sizeof(int);
+    *(int *)sp = argc;
+
+    // Push fake return address
+    sp -= sizeof(void *);
+    *(void **)sp = 0;
+
+    *esp = sp;
+    return true;
+}
 /* Waits for thread TID to die and returns its exit status. */
 int
 process_wait (tid_t child_tid) 
@@ -100,6 +154,7 @@ process_wait (tid_t child_tid)
     remove_child_process(child);
     return status;
 }
+
 
 /* Free the current process's resources. */
 void
@@ -120,7 +175,7 @@ process_exit (void)
     }
 
     /* Close all open files */
-    for (int i = 0; i < 128; i++) {
+    for (int i = 0; i < MAX_FILES; i++) {
         if (cur->files[i] != NULL) {
             file_close (cur->files[i]);
             cur->files[i] = NULL;

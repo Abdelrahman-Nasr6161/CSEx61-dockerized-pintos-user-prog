@@ -11,6 +11,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/thread.h"  // where needed
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -125,6 +127,52 @@ thread_tick (void)
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
         intr_yield_on_return ();
+}
+/* File management helpers */
+struct file *process_get_file(int fd) {
+    struct thread *cur = thread_current();
+    
+    if (fd < 0 || fd >= MAX_FILES)
+        return NULL;
+    
+    return cur->files[fd];
+}
+
+int process_add_file(struct file *f) {
+    struct thread *cur = thread_current();
+    
+    for (int fd = 2; fd < MAX_FILES; fd++) {
+        if (cur->files[fd] == NULL) {
+            cur->files[fd] = f;
+            return fd;
+        }
+    }
+    return -1;
+}
+
+void process_close_file(int fd) {
+    struct thread *cur = thread_current();
+    
+    if (fd >= 2 && fd < MAX_FILES && cur->files[fd] != NULL) {
+        file_close(cur->files[fd]);
+        cur->files[fd] = NULL;
+    }
+}
+/* Process management helpers */
+struct thread *get_child_process(tid_t tid) {
+    struct thread *cur = thread_current();
+    struct list_elem *e;
+    
+    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
+        struct thread *child = list_entry(e, struct thread, child_elem);
+        if (child->tid == tid)
+            return child;
+    }
+    return NULL;
+}
+
+void remove_child_process(struct thread *child) {
+    list_remove(&child->child_elem);
 }
 
 /* Prints thread statistics. */
