@@ -129,51 +129,52 @@ thread_tick (void)
         intr_yield_on_return ();
 }
 /* File management helpers */
-struct file *process_get_file(int fd) {
-    struct thread *cur = thread_current();
+// struct file *process_get_file(int fd) {
+//     struct thread *cur = thread_current();
     
-    if (fd < 0 || fd >= MAX_FILES)
-        return NULL;
+//     if (fd < 0 || fd >= MAX_FILES)
+//         return NULL;
     
-    return cur->files[fd];
-}
+//     return cur->files[fd];
+// }
 
-int process_add_file(struct file *f) {
-    struct thread *cur = thread_current();
+// int process_add_file(struct file *f) {
+//     struct thread *cur = thread_current();
     
-    for (int fd = 2; fd < MAX_FILES; fd++) {
-        if (cur->files[fd] == NULL) {
-            cur->files[fd] = f;
-            return fd;
-        }
-    }
-    return -1;
-}
+//     for (int fd = 2; fd < MAX_FILES; fd++) {
+//         if (cur->files[fd] == NULL) {
+//             cur->files[fd] = f;
+//             return fd;
+//         }
+//     }
+//     return -1;
+// }
 
-void process_close_file(int fd) {
-    struct thread *cur = thread_current();
+// void process_close_file(int fd) {
+//     struct thread *cur = thread_current();
     
-    if (fd >= 2 && fd < MAX_FILES && cur->files[fd] != NULL) {
-        file_close(cur->files[fd]);
-        cur->files[fd] = NULL;
-    }
-}
+//     if (fd >= 2 && fd < MAX_FILES && cur->files[fd] != NULL) {
+//         file_close(cur->files[fd]);
+//         cur->files[fd] = NULL;
+//     }
+// }
 /* Process management helpers */
-struct thread *get_child_process(tid_t tid) {
-    struct thread *cur = thread_current();
-    struct list_elem *e;
+// struct child_process *get_child_process(tid_t tid) {
+//     struct thread *cur = thread_current();
+//     struct list_elem *e;
     
-    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
-        struct thread *child = list_entry(e, struct thread, child_elem);
-        if (child->tid == tid)
-            return child;
-    }
-    return NULL;
-}
+//     for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
+//         struct child_process *cp = list_entry(e, struct child_process, elem);
+//         if (cp->tid == tid)
+//             return cp;
+//     }
+//     return NULL;
+// }
 
-void remove_child_process(struct thread *child) {
-    list_remove(&child->child_elem);
-}
+// void remove_child_process(struct child_process *cp) {
+//     list_remove(&cp->elem);
+//     free(cp); // Free allocated memory for the child_process
+// }
 
 /* Prints thread statistics. */
 void
@@ -451,8 +452,8 @@ init_thread (struct thread *t, const char *name, int priority)
     t->exit_status = 0;
     t->exited = false;
     t->parent_tid = TID_ERROR;
-    t->child_elem.next = NULL;
-    t->child_elem.prev = NULL;
+    // REMOVED: t->child_elem.next = NULL;
+    // REMOVED: t->child_elem.prev = NULL;
 
     /* Initialize file management fields */
     for (int i = 0; i < MAX_FILES; i++)
@@ -508,20 +509,20 @@ thread_schedule_tail (struct thread *prev)
 }
 
 /* Process management helpers */
-struct thread *get_child_process(tid_t tid) {
+struct child_process *get_child_process(tid_t tid) {
     struct thread *cur = thread_current();
     struct list_elem *e;
-    
     for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
-        struct thread *child = list_entry(e, struct thread, child_elem);
-        if (child->tid == tid)
-            return child;
+        struct child_process *cp = list_entry(e, struct child_process, elem);
+        if (cp->tid == tid)
+            return cp;
     }
     return NULL;
 }
 
-void remove_child_process(struct thread *child) {
-    list_remove(&child->child_elem);
+void remove_child_process(struct child_process *cp) {
+    list_remove(&cp->elem);
+    free(cp);
 }
 
 /* File management helpers */

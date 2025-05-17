@@ -29,13 +29,16 @@ enum thread_status {
 #define PRI_DEFAULT 31                 /* Default priority. */
 #define PRI_MAX 63                     /* Highest priority. */
 
-/* Child process element */
 struct child_process {
-    tid_t tid;                          /* Child thread ID */
-    int exit_status;                    /* Exit status of the child */
-    bool exited;                        /* Whether child has exited */
-    struct list_elem elem;              /* List element for children list */
+    tid_t tid;
+    int exit_status;
+    bool exited;
+    bool load_success;
+    struct semaphore load_sema;
+    struct semaphore exit_sema;
+    struct list_elem elem;
 };
+
 
 /* A kernel thread or user process. */
 struct thread
@@ -53,14 +56,12 @@ struct thread
 
     /* Process management */
     struct list children;               /* List of child processes */
-    struct semaphore child_wait_sema;   /* Semaphore for waiting on child */
+    struct child_process *cp;  // used for exec/wait
+    struct semaphore child_wait_sema;   /* Semaphore for waiting on child exit */
     int exit_status;                    /* Exit status of the process */
     bool exited;                        /* Whether the process has exited */
     struct thread *parent;              /* Parent thread */
-    struct list_elem child_elem;        /* List element for children list */
-    /* Parent TID for process hierarchy */
     tid_t parent_tid;
-
 
     /* File management */
     struct file *files[MAX_FILES];      /* Array of open files */
@@ -109,8 +110,8 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 /* Process management helpers */
-struct thread *get_child_process(tid_t tid);
-void remove_child_process(struct thread *child);
+struct child_process *get_child_process(tid_t tid);
+void remove_child_process(struct child_process *child);
 
 /* File descriptor management */
 struct file *process_get_file(int fd);
@@ -119,14 +120,5 @@ void process_close_file(int fd);
 
 /* Helper function to get thread by tid */
 struct thread *get_thread_by_tid(tid_t tid);
-
-/* In process.h or wherever child_process is defined */
-struct child_process {
-    tid_t tid;                  /* Thread ID of the child */
-    int exit_status;            /* Exit status of the child */
-    bool loaded;                /* Whether the child was successfully loaded */
-    struct semaphore load_sema;  /* Semaphore for load synchronization */
-    struct list_elem elem;      /* List element */
-};
 
 #endif /* THREADS_THREAD_H */
