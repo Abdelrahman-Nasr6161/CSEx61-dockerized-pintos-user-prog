@@ -174,7 +174,7 @@ void process_exit(void)
     {
         file_allow_write(cur->current_file);
         file_close(cur->current_file);
-        cur->current = NULL;
+        cur->current_file= NULL;
     }
 
     // Notify the parent that the child has finished execution.
