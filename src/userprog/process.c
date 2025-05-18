@@ -174,6 +174,7 @@ void process_exit(void)
     {
         file_allow_write(cur->current_file);
         file_close(cur->current_file);
+        cur->current = NULL;
     }
 
     // Notify the parent that the child has finished execution.
@@ -313,7 +314,7 @@ load (const char *file_name, void (**eip) (void), void **esp, char **save_ptr)
 		goto done;
 	}
 	file_deny_write(file);
-
+    thread_current()->current_file = file;
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
 			|| memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -397,7 +398,8 @@ load (const char *file_name, void (**eip) (void), void **esp, char **save_ptr)
 
 	done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+
+	// file_close (file);
 	return success;
 }
 
