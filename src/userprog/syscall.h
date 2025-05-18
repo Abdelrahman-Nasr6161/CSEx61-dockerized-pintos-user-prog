@@ -1,13 +1,12 @@
 #ifndef USERPROG_SYSCALL_H
 #define USERPROG_SYSCALL_H
 
-typedef int pid_t;
-
 void syscall_init (void);
+static struct lock filesys_lock;
+void check_address(const void *ptr);
 
+void check_valid_address(const void* pt);   // Check if the address is valid.
 
-struct file * get_file_by_fd (int fd);
-int add_to_file_table (struct file *f);
-
+void exit(int status);
 
 #endif /* userprog/syscall.h */
